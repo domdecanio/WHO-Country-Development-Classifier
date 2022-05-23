@@ -1,0 +1,184 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+Required Libraries
+```{r}
+library(glmnet)
+library(cvms)
+library(tidyverse)
+library(caret)
+library(e1071)
+```
+
+
+
+
+Splitting the data into training and testing data frames:
+```{r}
+set.seed(2021)
+whole <- read.csv("life_expectancy_data.csv")
+
+#removing all rows which contain one or more na value
+whole = na.omit(whole)
+
+index <- sample(1:nrow(whole), 1319)
+who_train <- whole[index, ]
+who_test <- whole[-index, ]
+```
+Removing all rows which contain one or more na value from the training dataset
+```{r}
+# who_train = na.omit(who_train)
+# who_test = na.omit(who_test)
+```
+
+
+
+** Creating the naive classification rule **
+```{r}
+X <- split(who_train, who_train$Status)
+```
+
+```{r}
+# Mean life expectancy of "Developed" countries
+ded = mean(X[1]$Developed[["Life.expectancy"]])
+# Mean life expectancy of "Developing" countries
+ding = mean(X[2]$Developing[["Life.expectancy"]], na.rm=TRUE)
+```
+Mean of two life expectancy values, which will be our classification rule.
+```{r}
+rule = (ded + ding)/2
+```
+
+Using the naive classifier to predict "Developed" or "Developing" using the testing data:
+```{r}
+who_test$prediction <- ifelse(who_test$Life.expectancy <rule, "Developing", "Developed")
+naiv_corr_pred = subset(who_test, select = c("Status", "prediction"))
+```
+Evaluating the naive classifier:
+```{r}
+eval = evaluate(naiv_corr_pred,
+                      target_col = "Status",
+                      prediction_col = "prediction",
+                type = "binomial")
+eval
+```
+Plotting a confusion matrix for the naive classifier:
+```{r}
+conf_mat = eval$'Confusion Matrix'[[1]]
+conf_mat
+plot_confusion_matrix(conf_mat)
+```
+Misclassification Rate of the naive model:
+```{r}
+mis_naive = 1-eval$Accuracy
+mis_naive
+```
+
+
+
+
+*** Linear Model ***
+Converting data frames into appropriate matrices
+
+Separating dependent and independent variables into distinct data frames
+```{r}
+# dependent variable (Y)
+y_var = subset(who_train, select = ("Status"))
+y_var$Status_num <- ifelse(y_var$Status == "Developed", 1, 0)
+to_drop = c("Status")
+y_var = data.frame(y_var[, !(names(y_var) %in% to_drop)])
+
+# independent variables (X's)
+to_drop = c("Status", "Country")
+x_vars = who_train[, !(names(who_train) %in% to_drop)]
+```
+
+Converting these data frames into matrices to be ingested by the lm function.
+```{r}
+y_var2 = apply(as.matrix.noquote(y_var), 2, as.numeric)
+x_vars2 = apply(as.matrix.noquote(x_vars), 2, as.numeric)
+#test_matrix_clean = apply(as.matrix.noquote(hp_king_test_clean), 2, as.numeric)
+```
+
+** Logistic Regression **
+```{r}
+fit <- glmnet(x_vars2, y_var2, family = "binomial")
+plot(fit, xvar = "lambda")
+```
+
+```{r}
+fit.cv <- cv.glmnet(x_vars2, y_var2, family = "binomial")
+plot(fit.cv)
+```
+
+```{r}
+summary(fit.cv, s = c("lambda.min"))
+```
+
+```{r}
+glm.fit <- glm(y_var2 ~ x_vars2, family = "binomial")
+summary(glm.fit)
+```
+
+
+```{r}
+# x_vars2 = apply(as.matrix.noquote(who_test), 2, as.numeric)
+# x_vars2 = who_test
+# probs = predict(glm.fit, x_vars2, type="response")
+```
+
+
+```{r}
+#index2 = head(who_test, 300)
+index2 = who_test
+```
+
+```{r}
+y.hat6 = predict(glm.fit, newdata = index2, type="response")
+#y.hat6_df = as.data.frame(y.hat6)
+#y.hat6_df
+```
+
+```{r}
+preds <- as.data.frame(ifelse(y.hat6 > 0.5, "Developed", "Developing")) %>% setNames(c("prediction"))
+```
+
+
+now combining the true values of "Status" with the predictions in order to calculate the model's misclassification rate.
+```{r}
+preds2 = head(preds, 330)
+# preds2 = as.data.frame(preds[569:1137,])
+who_test_results = cbind(index2$Status, preds2) %>% setNames(c("True", "Prediction"))
+```
+
+
+
+Evaluating the Logistic classifier:
+```{r}
+eval = evaluate(who_test_results,
+                      target_col = "True",
+                      prediction_col = "Prediction",
+                type = "binomial")
+eval
+```
+Plotting a confusion matrix for the Logistic Classifer:
+```{r}
+conf_mat = eval$'Confusion Matrix'[[1]]
+conf_mat
+plot_confusion_matrix(conf_mat)
+```
+Misclassification Rate of the Logistic model:
+```{r}
+mis_log = 1-eval$Accuracy
+mis_log
+```
+
+
+
+
+
+
+
+
+
